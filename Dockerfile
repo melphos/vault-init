@@ -8,16 +8,17 @@ ENV GO111MODULE=on \
 WORKDIR /go/src/app
 COPY . .
 
+RUN go get  
 RUN go build \
-  -a \
-  -ldflags "-s -w -extldflags 'static'" \
-  -installsuffix cgo \
-  -tags netgo \
-  -mod vendor \
-  -o /bin/vault-init \
-  .
-
-FROM scratch
+    -a \
+    -ldflags "-s -w -extldflags 'static'" \
+    -installsuffix cgo \
+    -tags netgo \
+    -o /bin/vault-init \
+    .
+RUN ls -l /bin
+FROM ubuntu
 ADD https://curl.haxx.se/ca/cacert.pem /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /bin/vault-init /
+RUN chmod 0664 /etc/ssl/certs/ca-certificates.crt
 CMD ["/vault-init"]

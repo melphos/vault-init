@@ -183,10 +183,6 @@ func main() {
 			log.Println("Vault is not initialized.")
 			log.Println("Initializing...")
 			initialize()
-			if !vaultAutoUnseal {
-				log.Println("Unsealing...")
-				unseal()
-			}
 		case 503:
 			log.Println("Vault is sealed.")
 			if !vaultAutoUnseal {
