@@ -43,7 +43,7 @@ var (
 
 	storageClient *storage.Client
 
-	userAgent = fmt.Sprintf("vault-init/1.0.0 (%s)", runtime.Version())
+	userAgent = fmt.Sprintf("vault-init/1.1.0 (%s)", runtime.Version())
 )
 
 // InitRequest holds a Vault init request.
@@ -77,7 +77,7 @@ type UnsealResponse struct {
 }
 
 func main() {
-	log.Println("Starting the vault-init service...")
+	log.Println("La Redoute: Starting the vault-init service.")
 
 	vaultAddr = os.Getenv("VAULT_ADDR")
 	if vaultAddr == "" {
@@ -86,16 +86,11 @@ func main() {
 
 	vaultSecretShares = intFromEnv("VAULT_SECRET_SHARES", 5)
 	vaultSecretThreshold = intFromEnv("VAULT_SECRET_THRESHOLD", 3)
+	vaultStoredShares = intFromEnv("VAULT_STORED_SHARES", 1)
+	vaultRecoveryShares = intFromEnv("VAULT_RECOVERY_SHARES", 1)
+	vaultRecoveryThreshold = intFromEnv("VAULT_RECOVERY_THRESHOLD", 1)
 
 	vaultInsecureSkipVerify := boolFromEnv("VAULT_SKIP_VERIFY", false)
-
-	vaultAutoUnseal := boolFromEnv("VAULT_AUTO_UNSEAL", true)
-
-	if vaultAutoUnseal {
-		vaultStoredShares = intFromEnv("VAULT_STORED_SHARES", 1)
-		vaultRecoveryShares = intFromEnv("VAULT_RECOVERY_SHARES", 1)
-		vaultRecoveryThreshold = intFromEnv("VAULT_RECOVERY_THRESHOLD", 1)
-	}
 
 	checkInterval := durFromEnv("CHECK_INTERVAL", 10*time.Second)
 
@@ -109,6 +104,7 @@ func main() {
 		log.Fatal("KMS_KEY_ID must be set and not empty")
 	}
 
+	/* KMS Config */
 	kmsCtx, kmsCtxCancel := context.WithCancel(context.Background())
 	defer kmsCtxCancel()
 	kmsClient, err := google.DefaultClient(kmsCtx, "https://www.googleapis.com/auth/cloudkms")
@@ -176,7 +172,7 @@ func main() {
 
 		switch response.StatusCode {
 		case 200:
-			log.Println("Vault is initialized and unsealed.")
+			log.Println("Vault is initialized.")
 		case 429:
 			log.Println("Vault is unsealed and in standby mode.")
 		case 501:
@@ -185,10 +181,7 @@ func main() {
 			initialize()
 		case 503:
 			log.Println("Vault is sealed.")
-			if !vaultAutoUnseal {
-				log.Println("Unsealing...")
-				unseal()
-			}
+			log.Println("Check our Vault configuration to validate autounseal.")	
 		default:
 			log.Printf("Vault is in an unknown state. Status code: %d", response.StatusCode)
 		}
