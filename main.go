@@ -62,20 +62,6 @@ type InitResponse struct {
 	RootToken  string   `json:"root_token"`
 }
 
-// UnsealRequest holds a Vault unseal request.
-type UnsealRequest struct {
-	Key   string `json:"key"`
-	Reset bool   `json:"reset"`
-}
-
-// UnsealResponse holds a Vault unseal response.
-type UnsealResponse struct {
-	Sealed   bool `json:"sealed"`
-	T        int  `json:"t"`
-	N        int  `json:"n"`
-	Progress int  `json:"progress"`
-}
-
 func main() {
 	log.Println("La Redoute: Starting the vault-init service.")
 
@@ -174,7 +160,7 @@ func main() {
 		case 200:
 			log.Println("Vault is initialized.")
 		case 429:
-			log.Println("Vault is unsealed and in standby mode.")
+			log.Println("Vault is initialized and in STANDBY MODE")
 		case 501:
 			log.Println("Vault is not initialized.")
 			log.Println("Initializing...")
@@ -298,102 +284,14 @@ func initialize() {
 	log.Println("Initialization complete.")
 }
 
-func unseal() {
-	bucket := storageClient.Bucket(gcsBucketName)
+func vaultAudit() {
+	response, err := httpClient.Head(vaultAddr + "/v1/sys/health")
 
-	ctx := context.Background()
-	unsealKeysObject, err := bucket.Object("unseal-keys.json.enc").NewReader(ctx)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	defer unsealKeysObject.Close()
-
-	unsealKeysData, err := ioutil.ReadAll(unsealKeysObject)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	unsealKeysDecryptRequest := &cloudkms.DecryptRequest{
-		Ciphertext: string(unsealKeysData),
-	}
-
-	unsealKeysDecryptResponse, err := kmsService.Projects.Locations.KeyRings.CryptoKeys.Decrypt(kmsKeyId, unsealKeysDecryptRequest).Do()
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	var initResponse InitResponse
-
-	unsealKeysPlaintext, err := base64.StdEncoding.DecodeString(unsealKeysDecryptResponse.Plaintext)
-	if err != nil {
-		log.Println(err)
-		return
-	}
-
-	if err := json.Unmarshal(unsealKeysPlaintext, &initResponse); err != nil {
-		log.Println(err)
-		return
-	}
-
-	for _, key := range initResponse.KeysBase64 {
-		done, err := unsealOne(key)
-		if done {
-			return
-		}
-
-		if err != nil {
-			log.Println(err)
-			return
-		}
+	if response != nil && response.Body != nil {
+		response.Body.Close()
 	}
 }
 
-func unsealOne(key string) (bool, error) {
-	unsealRequest := UnsealRequest{
-		Key: key,
-	}
-
-	unsealRequestData, err := json.Marshal(&unsealRequest)
-	if err != nil {
-		return false, err
-	}
-
-	r := bytes.NewReader(unsealRequestData)
-	request, err := http.NewRequest(http.MethodPut, vaultAddr+"/v1/sys/unseal", r)
-	if err != nil {
-		return false, err
-	}
-
-	response, err := httpClient.Do(request)
-	if err != nil {
-		return false, err
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode != 200 {
-		return false, fmt.Errorf("unseal: non-200 status code: %d", response.StatusCode)
-	}
-
-	unsealRequestResponseBody, err := ioutil.ReadAll(response.Body)
-	if err != nil {
-		return false, err
-	}
-
-	var unsealResponse UnsealResponse
-	if err := json.Unmarshal(unsealRequestResponseBody, &unsealResponse); err != nil {
-		return false, err
-	}
-
-	if !unsealResponse.Sealed {
-		return true, nil
-	}
-
-	return false, nil
-}
 
 func boolFromEnv(env string, def bool) bool {
 	val := os.Getenv(env)
