@@ -62,6 +62,27 @@ type InitResponse struct {
 	RootToken  string   `json:"root_token"`
 }
 
+// auditRequest holds a Vault audit request.
+type auditRequest struct {
+	AuditType   string `json:"type"`
+	Description string `json:"description"`
+	Options     options `json:"options"`
+}
+type options struct {
+	FilePath string `json:"file_path"`
+} 
+
+// auditResponse holds a Vault audit response.
+type auditResponse struct {
+	File struct {
+		Type		string 	`json:type`
+		Description	string 	`json:description`
+		Options		options `json:"options"`
+
+	} 
+}
+
+
 func main() {
 	log.Println("La Redoute: Starting the vault-init service.")
 
@@ -79,6 +100,10 @@ func main() {
 	vaultInsecureSkipVerify := boolFromEnv("VAULT_SKIP_VERIFY", false)
 
 	checkInterval := durFromEnv("CHECK_INTERVAL", 10*time.Second)
+
+	auditType = getEnv("AUDIT_TYPE", "stdout")
+	auditPath = getEnv("AUDIT_PATH", "file")
+	auditDescription = getEnv("AUDIT_DESCRIPTION", "Standard output audit events")
 
 	gcsBucketName = os.Getenv("GCS_BUCKET_NAME")
 	if gcsBucketName == "" {
@@ -160,9 +185,9 @@ func main() {
 		case 200:
 			log.Println("Vault is initialized.")
 		case 429:
-			log.Println("Vault is initialized and in STANDBY MODE")
+			log.Println("Vault is initialized and in STANDBY MODE in this POD")
 		case 501:
-			log.Println("Vault is not initialized.")
+			log.Println("Vault is NOT initialized.")
 			log.Println("Initializing...")
 			initialize()
 		case 503:
@@ -285,11 +310,53 @@ func initialize() {
 }
 
 func vaultAudit() {
-	response, err := httpClient.Head(vaultAddr + "/v1/sys/health")
-
-	if response != nil && response.Body != nil {
-		response.Body.Close()
+	auditRequest := auditRequest{
+		AuditType:   auditType,
+		Description: auditDescription,
+		Options:     options{FilePath: auditPath},
 	}
+
+	auditRequestData, err := json.Marshal(&auditRequest)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	r := bytes.NewReader(auditRequestData)
+	request, err := http.NewRequest("PUT", vaultAddr+"/v1/sys/" + auditPath, r)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	request.Header.Set("X-Vault-Token", vaultToken)
+
+	response, err := httpClient.Do(request)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer response.Body.Close()
+
+	auditRequestResponseBody, err := ioutil.ReadAll(response.Body)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	if response.StatusCode != 200 {
+		log.Printf("init: non 200 status code: %d", response.StatusCode)
+		return
+	}
+
+	var auditResponse auditResponse
+
+	if err := json.Unmarshal(auditRequestResponseBody, &auditResponse); err != nil {
+		log.Println(err)
+		return
+	}
+
+	log.Println("Vault audit: Enable with sucess!")
 }
 
 
@@ -331,4 +398,12 @@ func durFromEnv(env string, def time.Duration) time.Duration {
 		log.Fatalf("failed to parse %q: %s", env, err)
 	}
 	return d
+}
+
+func getEnv(key, fallback string) string {
+    value := os.Getenv(key)
+    if len(value) == 0 {
+        return fallback
+    }
+    return value
 }
