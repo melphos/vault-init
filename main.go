@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"runtime"
 	"strconv"
@@ -43,7 +44,13 @@ var (
 
 	storageClient *storage.Client
 
-	userAgent = fmt.Sprintf("vault-init/1.1.0 (%s)", runtime.Version())
+	userAgent = fmt.Sprintf("vault-init/1.1.1 (%s)", runtime.Version())
+
+	vaultToken string
+
+	auditType        string
+	auditPath        string
+	auditDescription string
 )
 
 // InitRequest holds a Vault init request.
@@ -64,24 +71,22 @@ type InitResponse struct {
 
 // auditRequest holds a Vault audit request.
 type auditRequest struct {
-	AuditType   string `json:"type"`
-	Description string `json:"description"`
+	AuditType   string  `json:"type"`
+	Description string  `json:"description"`
 	Options     options `json:"options"`
 }
 type options struct {
 	FilePath string `json:"file_path"`
-} 
+}
 
 // auditResponse holds a Vault audit response.
 type auditResponse struct {
 	File struct {
-		Type		string 	`json:type`
-		Description	string 	`json:description`
-		Options		options `json:"options"`
-
-	} 
+		Type        string  `json:type`
+		Description string  `json:description`
+		Options     options `json:"options"`
+	}
 }
-
 
 func main() {
 	log.Println("La Redoute: Starting the vault-init service.")
@@ -94,10 +99,10 @@ func main() {
 	vaultSecretShares = intFromEnv("VAULT_SECRET_SHARES", 5)
 	vaultSecretThreshold = intFromEnv("VAULT_SECRET_THRESHOLD", 3)
 	vaultStoredShares = intFromEnv("VAULT_STORED_SHARES", 1)
-	vaultRecoveryShares = intFromEnv("VAULT_RECOVERY_SHARES", 1)
-	vaultRecoveryThreshold = intFromEnv("VAULT_RECOVERY_THRESHOLD", 1)
+	vaultRecoveryShares = intFromEnv("VAULT_RECOVERY_SHARES", 5)
+	vaultRecoveryThreshold = intFromEnv("VAULT_RECOVERY_THRESHOLD", 5)
 
-	vaultInsecureSkipVerify := boolFromEnv("VAULT_SKIP_VERIFY", false)
+	vaultInsecureSkipVerify := boolFromEnv("VAULT_SKIP_VERIFY", true)
 
 	checkInterval := durFromEnv("CHECK_INTERVAL", 10*time.Second)
 
@@ -184,15 +189,17 @@ func main() {
 		switch response.StatusCode {
 		case 200:
 			log.Println("Vault is initialized.")
+			bootstrap()
 		case 429:
 			log.Println("Vault is initialized and in STANDBY MODE in this POD")
+			bootstrap()
 		case 501:
 			log.Println("Vault is NOT initialized.")
 			log.Println("Initializing...")
 			initialize()
 		case 503:
 			log.Println("Vault is sealed.")
-			log.Println("Check our Vault configuration to validate autounseal.")	
+			log.Println("Check our Vault configuration to validate autounseal.")
 		default:
 			log.Printf("Vault is in an unknown state. Status code: %d", response.StatusCode)
 		}
@@ -261,6 +268,9 @@ func initialize() {
 
 	log.Println("Encrypting unseal keys and the root token...")
 
+	log.Println("Registring root Token to another inicializations...")
+	vaultToken = initResponse.RootToken
+
 	rootTokenEncryptRequest := &cloudkms.EncryptRequest{
 		Plaintext: base64.StdEncoding.EncodeToString([]byte(initResponse.RootToken)),
 	}
@@ -309,6 +319,19 @@ func initialize() {
 	log.Println("Initialization complete.")
 }
 
+func bootstrap() {
+	cmd := exec.Command("/bootstrap-sidecar.sh")
+	/*
+		cmd.Env = append(os.Environ(),
+			"FOO=duplicate_value", // ignored
+			"FOO=actual_value",    // this value is used
+		)
+	*/
+	if err := cmd.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
 func vaultAudit() {
 	auditRequest := auditRequest{
 		AuditType:   auditType,
@@ -323,7 +346,7 @@ func vaultAudit() {
 	}
 
 	r := bytes.NewReader(auditRequestData)
-	request, err := http.NewRequest("PUT", vaultAddr+"/v1/sys/" + auditPath, r)
+	request, err := http.NewRequest("PUT", vaultAddr+"/v1/sys/"+auditPath, r)
 	if err != nil {
 		log.Println(err)
 		return
@@ -358,7 +381,6 @@ func vaultAudit() {
 
 	log.Println("Vault audit: Enable with sucess!")
 }
-
 
 func boolFromEnv(env string, def bool) bool {
 	val := os.Getenv(env)
@@ -401,9 +423,9 @@ func durFromEnv(env string, def time.Duration) time.Duration {
 }
 
 func getEnv(key, fallback string) string {
-    value := os.Getenv(key)
-    if len(value) == 0 {
-        return fallback
-    }
-    return value
+	value := os.Getenv(key)
+	if len(value) == 0 {
+		return fallback
+	}
+	return value
 }
