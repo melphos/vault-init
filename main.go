@@ -96,6 +96,7 @@ func main() {
 		vaultAddr = "https://127.0.0.1:8200"
 	}
 
+	vaultToken = os.Getenv("VAULT_TOKEN")
 	vaultSecretShares = intFromEnv("VAULT_SECRET_SHARES", 5)
 	vaultSecretThreshold = intFromEnv("VAULT_SECRET_THRESHOLD", 3)
 	vaultStoredShares = intFromEnv("VAULT_STORED_SHARES", 1)
@@ -320,16 +321,24 @@ func initialize() {
 }
 
 func bootstrap() {
-	cmd := exec.Command("/bootstrap-sidecar.sh")
-	/*
-		cmd.Env = append(os.Environ(),
-			"FOO=duplicate_value", // ignored
-			"FOO=actual_value",    // this value is used
-		)
-	*/
-	if err := cmd.Run(); err != nil {
-		log.Fatal(err)
+	if vaultToken == "" {
+		vaultToken = os.Getenv("VAULT_TOKEN")
+		log.Println("Token is empty. Set Token to: " + vaultToken)
+	} else {
+		log.Println("Token is: " + vaultToken)
 	}
+	cmd := exec.Command("sh", "-c", "/usr/local/bin/bootstrap")
+	cmd.Env = append(os.Environ(), "VAULT_TOKEN="+vaultToken)
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println(fmt.Sprint(err) + ": " + stderr.String())
+		return
+	}
+	fmt.Println("Result: " + out.String())
 }
 
 func vaultAudit() {

@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # Author:  Carlos Machado
 # Date:    2019-07-31
@@ -16,6 +16,9 @@ cacert='/var/run/secrets/kubernetes.io/serviceaccount/ca.crt'
 bearer_token="$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)"
 namespace="$(cat /var/run/secrets/kubernetes.io/serviceaccount/namespace)"
 
+echo "[DEBUG] VAULT_TOKEN:  ${VAULT_TOKEN}"
+
+vault login ${VAULT_TOKEN}
 #vault_port=$(echo "${VAULT_ADDR}" | sed -r 's#^https?://(.+):(\d+)#\2#')
 
 # create gilab policy
@@ -62,8 +65,6 @@ vault auth enable -description="siege.red LDAP Credentials" ldap
 echo "[INFO] Enable Kubernetes auth method"
 vault auth enable -description="Kubernetes Service Account Credentials" kubernetes
 
-export VAULT_TOKEN=${token}
-
 # inject policies
 ##echo "[INFO] Injecting policies..."
 ##for path in $(find /policies -type f -name '*.hcl'); do
@@ -79,15 +80,40 @@ export VAULT_TOKEN=${token}
 echo "[INFO] Configuring LDAP..."
 # load ldap env variables
 ##source /config/ldap/ldap.conf
+#OLDIFS=$IFS
+#IFS='
+#'
+#for vars in $(env | grep LDAP)
+#do
+#    echo "export $vars" | tee -a ldap.vars
+#done
+#IFS=$OLDIFS
+#source ldap.vars
+
+echo "[INFO] Vault LDAP Command: "
 vault write auth/ldap/config \
-    url="${LDAP_URL}" \
-    userdn="${LDAP_USERDN}" \
-    groupdn="${LDAP_GROUPDN}" \
-    groupfilter="${LDAP_GROUPFILTER}" \
-    groupattr="${LDAP_GROUPATTR}" \
-    upndomain="${LDAP_UPNDOMAIN}" \
-    insecure_tls="${LDAP_INSECURE_TLS}" \
-    starttls="${LDAP_STARTTLS}"
+    url="ldap://$LDAP_URL" \
+    userdn="$LDAP_USERDN" \
+    userattr="$LDAP_USERATTR" \
+    groupdn="$LDAP_GROUPDN" \
+    groupfilter="$LDAP_GROUPFILTER" \
+    groupattr="$LDAP_GROUPATTR" \
+    upndomain="$LDAP_UPNDOMAIN" \
+    insecure_tls="$LDAP_INSECURE_TLS" \
+    starttls="$LDAP_STARTTLS"
+
+#echo "vault write auth/ldap/config \\
+#    url=\"ldap://$LDAP_URL\" \\
+#    userdn=\"$LDAP_USERDN\" \\
+#    userattr=\"$LDAP_USERATTR\" \\
+#    groupdn=\"$LDAP_GROUPDN\" \\
+#    groupfilter=\"$LDAP_GROUPFILTER\" \\
+#    groupattr=\"$LDAP_GROUPATTR\" \\
+#    upndomain=\"$LDAP_UPNDOMAIN\" \\
+#    insecure_tls=\"$LDAP_INSECURE_TLS\" \\
+#    starttls=\"$LDAP_STARTTLS\"" |tee -a vault_cmd
+#
+#bash -x vault_cmd
 
 # configure Kubernetes auth
 echo "[INFO] Configuring Kubernetes..."
